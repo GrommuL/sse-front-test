@@ -1,15 +1,16 @@
-import  { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 
 export const App = () => {
   const [messages, setMessages] = useState<string[]>([])
   const [nickName, setNickName] = useState('')
+  const [nickNameToSend, setNickNameToSend] = useState('')
   const [messageToSend, setMessageToSend] = useState('')
   const eventSourceRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
     if (!nickName) return
 
-    const eventSource = new EventSource(`/api/v1/sse/open-sse-stream/${nickName}`)
+    const eventSource = new EventSource(`url/${nickName}`)
     eventSourceRef.current = eventSource
 
     eventSource.onmessage = (event) => {
@@ -27,7 +28,7 @@ export const App = () => {
         eventSourceRef.current.close()
       }
     }
-  }, [nickName])
+  }, [])
 
   const sendMessageForAll = async () => {
     try {
@@ -63,14 +64,15 @@ export const App = () => {
         <input type='text' placeholder='Enter your nickname' value={nickName} onChange={(e) => setNickName(e.target.value)} />
         <button onClick={() => setNickName(nickName)}>Connect</button>
       </div>
-
       <div>
         <h3>Connected as: {nickName}</h3>
 
         <div>
           <input type='text' placeholder='Enter message' value={messageToSend} onChange={(e) => setMessageToSend(e.target.value)} />
+          <input type='text' placeholder='Enter message' value={messageToSend} onChange={(e) => setNickNameToSend(e.target.value)} />
           <button onClick={sendMessageForAll}>Send to All</button>
           <button onClick={() => sendMessageByName(nickName)}>Send to Self</button>
+          <button onClick={() => sendMessageByName(nickNameToSend)}>Send to</button>
         </div>
 
         <div className='sse-client-messages'>

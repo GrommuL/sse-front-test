@@ -10,7 +10,7 @@ export const App = () => {
   useEffect(() => {
     if (!nickName) return
 
-    const eventSource = new EventSource(`url/${nickName}`)
+    const eventSource = new EventSource(`http://localhost:8080/api/v1/sse/open-sse-stream/${nickName}`)
     eventSourceRef.current = eventSource
 
     eventSource.onmessage = (event) => {
@@ -28,11 +28,11 @@ export const App = () => {
         eventSourceRef.current.close()
       }
     }
-  }, [])
+  }, [nickName])
 
   const sendMessageForAll = async () => {
     try {
-      await fetch('url', {
+      await fetch('http://localhost:8080/api/v1/sse/send-message-for-all', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: messageToSend })
@@ -45,7 +45,7 @@ export const App = () => {
 
   const sendMessageByName = async (targetNickName: string) => {
     try {
-      await fetch(`url/${targetNickName}`, {
+      await fetch(`http://localhost:8080/api/v1/sse/send-message-by-name/${targetNickName}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: messageToSend })
@@ -68,8 +68,8 @@ export const App = () => {
         <h3>Connected as: {nickName}</h3>
 
         <div>
-          <input type='text' placeholder='Enter message' value={messageToSend} onChange={(e) => setMessageToSend(e.target.value)} />
-          <input type='text' placeholder='Enter message' value={messageToSend} onChange={(e) => setNickNameToSend(e.target.value)} />
+          <input type='text' placeholder='Сообщение' value={messageToSend} onChange={(e) => setMessageToSend(e.target.value)} />
+          <input type='text' placeholder='Никнейм кому отправить' value={nickNameToSend} onChange={(e) => setNickNameToSend(e.target.value)} />
           <button onClick={sendMessageForAll}>Send to All</button>
           <button onClick={() => sendMessageByName(nickName)}>Send to Self</button>
           <button onClick={() => sendMessageByName(nickNameToSend)}>Send to</button>

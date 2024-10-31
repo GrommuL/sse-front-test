@@ -2,80 +2,74 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { MessageCircle, Users, UserPlus } from 'lucide-react'
 import axios from 'axios'
 
-const API_URL = 'http://localhost:8080/api/v1/sse'
+const API_URL = 'http://45.153.68.230:8070/api/v1'
 
 type AuthMode = 'credentials' | 'direct'
 type MessageMode = 'regular' | 'broadcast' | 'direct'
 
 export const App = () => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'))
-  const [messages, setMessages] = useState<{ id: string; author: string; content: string }[]>([
-    { id: '1', author: 'Пользователь 1', content: 'Привет' },
-    { id: '2', author: 'Пользователь 2', content: 'Привет' }
-  ])
+  const [messages, setMessages] = useState<string[]>([])
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [directUsername, setDirectUsername] = useState('')
   const [directJwt, setDirectJwt] = useState('')
   const [newMessage, setNewMessage] = useState('')
   const [targetUsername, setTargetUsername] = useState('')
+  const [recepientUsername, setRecepientUsername] = useState('')
   const [isLogin, setIsLogin] = useState(true)
   const [authMode, setAuthMode] = useState<AuthMode>('credentials')
   const [messageMode, setMessageMode] = useState<MessageMode>('regular')
   const [isConnecting, setIsConnecting] = useState(false)
+  const [users, setUsers] = useState<{ hashedPhone: string; phone: string }[]>([])
   const eventSourceRef = useRef<EventSource | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const lastEventId = localStorage.getItem('lastEventId')
 
-  const startSseConnection = useCallback(
-    // (lastEventId?: string) => {
-    () => {
-      if (isConnecting || !token) return
+  const startSseConnection = useCallback(() => {
+    // if (isConnecting || !token) return
 
-      setIsConnecting(true)
+    // setIsConnecting(true)
 
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-      }
+    const eventSource = new EventSource(`${API_URL}/sse/open-sse-stream/${token}`)
 
-      // const url = `${API_URL}/open-sse-stream/${token}${lastEventId ? `?lastEventId=${lastEventId}` : ''}`
+    eventSource.onopen = () => {
+      console.log('Подключено к SSE')
+      setIsConnecting(false)
+    }
 
-      const eventSource = new EventSource(`${API_URL}/open-sse-stream/${token}`, { withCredentials: true })
+    eventSource.onerror = (error) => {
+      console.error('Ошибка подключения SSE:', error)
+      console.log('Соединение потеряно, попытка переподключения...')
+      eventSource.close()
+      // setIsConnecting(false)
 
-      eventSource.onmessage = (event) => {
-        const message = JSON.parse(event.data)
-        setMessages((prevMessages) => [...prevMessages, message])
+      setTimeout(() => {
+        startSseConnection()
+      }, 3000)
+    }
 
-        if (event.lastEventId) {
-          localStorage.setItem('lastEventId', event.lastEventId)
-        }
-      }
+    // eventSource.onerror = () => {
+    //   console.log('Соединение потеряно, попытка переподключения...')
+    //   eventSource.close()
+    //   setIsConnecting(false)
 
-      eventSource.onopen = () => {
-        console.log('Подключено к SSE')
-        setIsConnecting(false)
-      }
+    //   setTimeout(() => {
+    //     startSseConnection()
+    //   }, 3000)
+    // }
 
-      eventSource.onerror = () => {
-        console.log('Соединение потеряно, попытка переподключения...')
-        eventSource.close()
-        setIsConnecting(false)
+    eventSource.onmessage = (event) => {
+      const message = event.data
+      setMessages((prevMessages) => [...prevMessages, message])
+      console.log('Новое сообщение.', typeof event.data, event.data)
+    }
 
-        setTimeout(() => {
-          // const lastEventId = localStorage.getItem('lastEventId')
-          startSseConnection()
-        }, 3000)
-      }
-
-      eventSourceRef.current = eventSource
-    },
-    [token, isConnecting]
-  )
+    eventSourceRef.current = eventSource
+  }, [token])
 
   useEffect(() => {
     if (token) {
-      // const lastEventId = localStorage.getItem('lastEventId')
       startSseConnection()
     }
 
@@ -92,13 +86,19 @@ export const App = () => {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
-    const endpoint = isLogin ? '/login' : '/register'
+    const endpoint = isLogin ? 'login' : 'register'
 
     try {
-      const response = await axios.post(`${API_URL}${endpoint}`, { username, password })
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token)
-        setToken(response.data.token)
+      const response = await axios.post(
+        `${API_URL}/auth/${endpoint}`,
+        { phone: username, password, fingerprint: username },
+        { headers: { 'Content-Type': 'application/json' }, withCredentials: true }
+      )
+
+      if (response.data.access_token) {
+        localStorage.setItem('token', response.data.access_token)
+        localStorage.setItem('phone', username)
+        setToken(response.data.access_token)
       }
     } catch (error) {
       console.error('Authentication error:', error)
@@ -123,12 +123,16 @@ export const App = () => {
       eventSourceRef.current.close()
     }
     localStorage.removeItem('token')
-    localStorage.removeItem('lastEventId')
-    localStorage.removeItem('username')
+    localStorage.removeItem('phone')
     setToken(null)
     setMessages([])
   }
-
+  console.log({
+    payload: newMessage,
+    senderHash: targetUsername,
+    recipientHash: recepientUsername,
+    sentTime: new Date()
+  })
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newMessage.trim() || !token) return
@@ -136,13 +140,13 @@ export const App = () => {
     try {
       switch (messageMode) {
         case 'broadcast':
-          await fetch(`${API_URL}/send-message-for-all`, {
+          await fetch(`${API_URL}/sse/send-message-for-all`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`
             },
-            body: JSON.stringify('СЮДА ПЕРЕДАВАТЬ ОБЪЕКТ СООБЩЕНИЯ')
+            body: JSON.stringify({ message: newMessage })
           })
           break
         case 'direct':
@@ -150,27 +154,50 @@ export const App = () => {
             alert('Пожалуйста, укажите имя получателя')
             return
           }
-          await fetch(`${API_URL}/send-message-by-name/${targetUsername}`, {
+          await fetch(`${API_URL}/sse/send-message-by-hash/auth`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`
             },
-            body: JSON.stringify('СЮДА ПЕРЕДАВАТЬ ОБЪЕКТ СООБЩЕНИЯ')
+            body: JSON.stringify({
+              payload: newMessage,
+              senderHash: targetUsername,
+              recipientHash: recepientUsername,
+              sentTime: new Date()
+            })
           })
           break
         default:
-          await axios.post(`${API_URL}/АДРЕС НА ОТПРАВКУ ПРОСТО СООБЩЕНИЯ КУДА-ТО`, 'СЮДА ПЕРЕДАВАТЬ ОБЪЕКТ СООБЩЕНИЯ', {
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`
+          await axios.post(
+            `${API_URL}/send-message`,
+            { message: newMessage },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`
+              }
             }
-          })
+          )
       }
       setNewMessage('')
     } catch (error) {
       console.error('Error sending message:', error)
     }
+  }
+
+  const getUsers = async () => {
+    const response = await axios(`${API_URL}/sse/users`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      }
+    })
+    const currentUser = response.data.find((user) => user.phone === localStorage.getItem('phone'))
+    setRecepientUsername(currentUser.hashedPhone)
+
+    setUsers(response.data)
   }
 
   if (!token) {
@@ -254,17 +281,25 @@ export const App = () => {
         <h1 className='text-white text-xl font-bold'>SSE тестируем</h1>
         <div className='flex items-center gap-2'>
           {isConnecting && <span className='text-yellow-500 text-sm'>Соединение...</span>}
-          {!isConnecting && lastEventId && <span className='text-yellow-500 text-sm'>Канал связи установлен, Last-Event-ID: {lastEventId} </span>}
+          {!isConnecting && <span className='text-green-500 text-sm'>Подключено</span>}
           <button onClick={handleLogout} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
             Выйти
           </button>
         </div>
       </div>
       <div className='flex-grow overflow-y-auto p-4 space-y-4'>
+        <div className='flex flex-col gap-y-[20px]'>
+          <code>
+            <pre className='text-white text-[14px]'>{JSON.stringify(users, undefined, 2)}</pre>
+          </code>
+          <button onClick={getUsers} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
+            Получить всех пользователей
+          </button>
+        </div>
         {messages.map((message, index) => (
-          <div key={message.id || index} className='bg-gray-700 rounded-lg p-3'>
-            <span className='font-bold text-indigo-300'>{message.author}: </span>
-            <span className='text-white'>{message.content}</span>
+          <div key={`${index}-${message}`} className='bg-gray-700 rounded-lg p-3'>
+            {/* <span className='font-bold text-indigo-300'>{message.author}: </span> */}
+            <span className='text-white'>{message}</span>
           </div>
         ))}
         <div ref={messagesEndRef} />

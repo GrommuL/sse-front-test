@@ -42,11 +42,13 @@ export const App = () => {
       console.error('Ошибка подключения SSE:', error)
       console.log('Соединение потеряно, попытка переподключения...')
       eventSource.close()
+
+      handleLogout()
       // setIsConnecting(false)
 
-      setTimeout(() => {
-        startSseConnection()
-      }, 3000)
+      // setTimeout(() => {
+      //   startSseConnection()
+      // }, 3000)
     }
 
     // eventSource.onerror = () => {
@@ -127,12 +129,7 @@ export const App = () => {
     setToken(null)
     setMessages([])
   }
-  console.log({
-    payload: newMessage,
-    senderHash: targetUsername,
-    recipientHash: recepientUsername,
-    sentTime: new Date()
-  })
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newMessage.trim() || !token) return
@@ -162,8 +159,8 @@ export const App = () => {
             },
             body: JSON.stringify({
               payload: newMessage,
-              senderHash: targetUsername,
-              recipientHash: recepientUsername,
+              senderHash: recepientUsername,
+              recipientHash: targetUsername,
               sentTime: new Date()
             })
           })

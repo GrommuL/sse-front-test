@@ -31,7 +31,11 @@ export const App = () => {
   const retryDelay = useRef(INITIAL_RETRY_DELAY)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  console.log(errorMessage)
+  console.log({
+    DELAY: retryDelay.current,
+    COUNT: retryCount.current,
+    EVENT: eventSourceRef.current
+  })
   const startSseConnection = useCallback(() => {
     // if (isConnecting || !token) return
 
@@ -52,18 +56,19 @@ export const App = () => {
       console.error('Ошибка подключения SSE:', error)
       eventSource.close()
 
-      if (errorMessage === 'reconnect' && retryCount.current < MAX_RETRIES) {
-        console.log('Попытка переподключения...')
-        setTimeout(() => {
-          retryCount.current += 1
-          retryDelay.current *= 2
-          startSseConnection()
-          setErrorMessage('')
-        }, retryDelay.current)
-      } else {
-        setErrorMessage('')
-        // handleLogout()
-      }
+      // if (errorMessage === 'reconnect' && retryCount.current < MAX_RETRIES) {
+      //   console.log('Попытка переподключения...')
+      //   setTimeout(() => {
+      //     console.log('Попытка переподключения... 13123')
+      //     retryCount.current += 1
+      //     retryDelay.current *= 2
+      //     startSseConnection()
+      //     setErrorMessage('')
+      //   }, retryDelay.current)
+      // } else {
+      //   setErrorMessage('')
+      //   // handleLogout()
+      // }
       // setIsConnecting(false)
 
       // setTimeout(() => {
@@ -79,14 +84,20 @@ export const App = () => {
     // }
 
     eventSource.onmessage = (event) => {
-      console.log(event)
       const message: { status: string; payload: string } = JSON.parse(event.data)
-
+      console.log(event)
       if (message.status === 'reconnect') {
         console.log('Сервер запросил переподключение...')
         setErrorMessage('reconnect')
         eventSource.close()
-        startSseConnection() // Переподключение
+        eventSourceRef.current = null
+        setTimeout(() => {
+          console.log('Попытка переподключения... 13123')
+          retryCount.current += 1
+          retryDelay.current *= 2
+          startSseConnection()
+          setErrorMessage('')
+        }, retryDelay.current)
       } else if (message.status === 'message') {
         setMessages((prevMessages) => [...prevMessages, message])
         console.log('Новое сообщение.', event.data)
@@ -97,10 +108,10 @@ export const App = () => {
     }
 
     eventSourceRef.current = eventSource
-  }, [token, errorMessage])
+  }, [token])
 
   useEffect(() => {
-    if (token) {
+    if (token && !eventSourceRef.current) {
       startSseConnection()
     }
 
@@ -152,6 +163,7 @@ export const App = () => {
   const handleLogout = () => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
+      eventSourceRef.current = null
     }
     localStorage.removeItem('token')
     localStorage.removeItem('phone')
@@ -175,12 +187,12 @@ export const App = () => {
             body: JSON.stringify({ message: newMessage })
           })
           break
-        case 'direct':
+        case 'direct': {
           if (!targetUsername.trim()) {
             alert('Пожалуйста, укажите имя получателя')
             return
           }
-          await fetch(`${API_URL}/sse/send-message-by-hash/auth`, {
+          const response = await fetch(`${API_URL}/sse/send-message-by-hash/auth`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -193,7 +205,26 @@ export const App = () => {
               sentTime: new Date()
             })
           })
+
+          const responseData = await response.json()
+
+          if (responseData.status === 'no_sender_connection' || responseData.status === 'no_recipient_connection') {
+            setErrorMessage('reconnect')
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close()
+              eventSourceRef.current = null
+            }
+            setTimeout(() => {
+              console.log('Попытка переподключения... 13123')
+              retryCount.current += 1
+              retryDelay.current *= 2
+              startSseConnection()
+              setErrorMessage('')
+            }, retryDelay.current)
+          }
+          console.log(responseData)
           break
+        }
         default:
           await axios.post(
             `${API_URL}/send-message`,
@@ -226,13 +257,6 @@ export const App = () => {
     setUsers(response.data)
   }
 
-  const closeConnection = () => {
-    if (eventSourceRef.current) {
-      console.log('CLOSING CONNECTION')
-      eventSourceRef.current.close()
-    }
-  }
-
   const disconnect = async () => {
     await fetch(`${API_URL}/sse/close-sse-connection/${recepientUsername}`, {
       method: 'DELETE',
@@ -242,7 +266,13 @@ export const App = () => {
       }
     })
   }
-
+  const closeConnection = () => {
+    if (eventSourceRef.current) {
+      console.log('CLOSING CONNECTION')
+      eventSourceRef.current.close()
+      disconnect()
+    }
+  }
   if (!token) {
     return (
       <div className='flex items-center justify-center min-h-screen bg-gray-800'>

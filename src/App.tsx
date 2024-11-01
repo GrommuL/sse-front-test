@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { MessageCircle, Users, UserPlus } from 'lucide-react'
 import axios from 'axios'
-
 const API_URL = 'http://45.153.68.230:8070/api/v1'
 
 type AuthMode = 'credentials' | 'direct'
 type MessageMode = 'regular' | 'broadcast' | 'direct'
 
+const MAX_RETRIES = 3
+const INITIAL_RETRY_DELAY = 1000
+
 export const App = () => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'))
-  const [messages, setMessages] = useState<string[]>([])
+  const [messages, setMessages] = useState<{ status: string; payload: string }[]>([])
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [directUsername, setDirectUsername] = useState('')
@@ -23,9 +25,13 @@ export const App = () => {
   const [isConnecting, setIsConnecting] = useState(false)
   const [users, setUsers] = useState<{ hashedPhone: string; phone: string }[]>([])
   const eventSourceRef = useRef<EventSource | null>(null)
+  const [errorMessage, setErrorMessage] = useState('')
+
+  const retryCount = useRef(0)
+  const retryDelay = useRef(INITIAL_RETRY_DELAY)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-
+  console.log(errorMessage)
   const startSseConnection = useCallback(() => {
     // if (isConnecting || !token) return
 
@@ -33,17 +39,31 @@ export const App = () => {
 
     const eventSource = new EventSource(`${API_URL}/sse/open-sse-stream/${token}`)
 
-    eventSource.onopen = () => {
+    eventSource.onopen = (event) => {
+      console.log({ ON_OPEN: event })
       console.log('Подключено к SSE')
       setIsConnecting(false)
+      retryCount.current = 0
+      retryDelay.current = INITIAL_RETRY_DELAY
+      setErrorMessage('')
     }
 
     eventSource.onerror = (error) => {
       console.error('Ошибка подключения SSE:', error)
-      console.log('Соединение потеряно, попытка переподключения...')
       eventSource.close()
 
-      handleLogout()
+      if (errorMessage === 'reconnect' && retryCount.current < MAX_RETRIES) {
+        console.log('Попытка переподключения...')
+        setTimeout(() => {
+          retryCount.current += 1
+          retryDelay.current *= 2
+          startSseConnection()
+          setErrorMessage('')
+        }, retryDelay.current)
+      } else {
+        setErrorMessage('')
+        // handleLogout()
+      }
       // setIsConnecting(false)
 
       // setTimeout(() => {
@@ -56,19 +76,28 @@ export const App = () => {
     //   eventSource.close()
     //   setIsConnecting(false)
 
-    //   setTimeout(() => {
-    //     startSseConnection()
-    //   }, 3000)
     // }
 
     eventSource.onmessage = (event) => {
-      const message = event.data
-      setMessages((prevMessages) => [...prevMessages, message])
-      console.log('Новое сообщение.', typeof event.data, event.data)
+      console.log(event)
+      const message: { status: string; payload: string } = JSON.parse(event.data)
+
+      if (message.status === 'reconnect') {
+        console.log('Сервер запросил переподключение...')
+        setErrorMessage('reconnect')
+        eventSource.close()
+        startSseConnection() // Переподключение
+      } else if (message.status === 'message') {
+        setMessages((prevMessages) => [...prevMessages, message])
+        console.log('Новое сообщение.', event.data)
+      } else {
+        console.log('Сообщение.', event.data)
+        return
+      }
     }
 
     eventSourceRef.current = eventSource
-  }, [token])
+  }, [token, errorMessage])
 
   useEffect(() => {
     if (token) {
@@ -197,6 +226,23 @@ export const App = () => {
     setUsers(response.data)
   }
 
+  const closeConnection = () => {
+    if (eventSourceRef.current) {
+      console.log('CLOSING CONNECTION')
+      eventSourceRef.current.close()
+    }
+  }
+
+  const disconnect = async () => {
+    await fetch(`${API_URL}/sse/close-sse-connection/${recepientUsername}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      }
+    })
+  }
+
   if (!token) {
     return (
       <div className='flex items-center justify-center min-h-screen bg-gray-800'>
@@ -279,8 +325,14 @@ export const App = () => {
         <div className='flex items-center gap-2'>
           {isConnecting && <span className='text-yellow-500 text-sm'>Соединение...</span>}
           {!isConnecting && <span className='text-green-500 text-sm'>Подключено</span>}
+          <button onClick={disconnect} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
+            Отключиться
+          </button>
           <button onClick={handleLogout} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
             Выйти
+          </button>
+          <button onClick={closeConnection} className='bg-yellow-500 text-white px-4 py-2 rounded hover:bg-red-600'>
+            Закрыть SSE
           </button>
         </div>
       </div>
@@ -294,9 +346,9 @@ export const App = () => {
           </button>
         </div>
         {messages.map((message, index) => (
-          <div key={`${index}-${message}`} className='bg-gray-700 rounded-lg p-3'>
+          <div key={`${index}-${message.payload}`} className='bg-gray-700 rounded-lg p-3'>
             {/* <span className='font-bold text-indigo-300'>{message.author}: </span> */}
-            <span className='text-white'>{message}</span>
+            <span className='text-white'>{message.payload}</span>
           </div>
         ))}
         <div ref={messagesEndRef} />

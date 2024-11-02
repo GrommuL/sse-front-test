@@ -21,7 +21,7 @@ export const App = () => {
   const [recepientUsername, setRecepientUsername] = useState('')
   const [isLogin, setIsLogin] = useState(true)
   const [authMode, setAuthMode] = useState<AuthMode>('credentials')
-  const [messageMode, setMessageMode] = useState<MessageMode>('regular')
+  const [messageMode, setMessageMode] = useState<MessageMode>('direct')
   const [isConnecting, setIsConnecting] = useState(false)
   const [users, setUsers] = useState<{ hashedPhone: string; phone: string }[]>([])
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -31,17 +31,17 @@ export const App = () => {
   const retryDelay = useRef(INITIAL_RETRY_DELAY)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  console.log({
-    DELAY: retryDelay.current,
-    COUNT: retryCount.current,
-    EVENT: eventSourceRef.current
-  })
+  // console.log({
+  //   DELAY: retryDelay.current,
+  //   COUNT: retryCount.current,
+  //   EVENT: eventSourceRef.current
+  // })
   const startSseConnection = useCallback(() => {
     // if (isConnecting || !token) return
 
     // setIsConnecting(true)
 
-    const eventSource = new EventSource(`${API_URL}/sse/open-sse-stream/${token}`)
+    const eventSource = new EventSource(`${API_URL}/sse/open/${token}`)
 
     eventSource.onopen = (event) => {
       console.log({ ON_OPEN: event })
@@ -84,8 +84,8 @@ export const App = () => {
     // }
 
     eventSource.onmessage = (event) => {
+      console.log('DATA', event.data)
       const message: { status: string; payload: string } = JSON.parse(event.data)
-      console.log(event)
       if (message.status === 'reconnect') {
         console.log('Сервер запросил переподключение...')
         setErrorMessage('reconnect')
@@ -103,7 +103,6 @@ export const App = () => {
         console.log('Новое сообщение.', event.data)
       } else {
         console.log('Сообщение.', event.data)
-        return
       }
     }
 
@@ -192,8 +191,8 @@ export const App = () => {
             alert('Пожалуйста, укажите имя получателя')
             return
           }
-          const response = await fetch(`${API_URL}/sse/send-message-by-hash/auth`, {
-            method: 'PUT',
+          const response = await fetch(`${API_URL}/sse/message/auth`, {
+            method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`
@@ -203,8 +202,11 @@ export const App = () => {
               senderHash: recepientUsername,
               recipientHash: targetUsername,
               sentTime: new Date()
-            })
+            }),
+            credentials: 'include'
           })
+
+          console.log(response)
 
           const responseData = await response.json()
 
@@ -258,7 +260,7 @@ export const App = () => {
   }
 
   const disconnect = async () => {
-    await fetch(`${API_URL}/sse/close-sse-connection/${recepientUsername}`, {
+    await fetch(`${API_URL}/sse/close`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -286,12 +288,12 @@ export const App = () => {
             >
               Логин/Регистрация
             </button>
-            <button
+            {/* <button
               onClick={() => setAuthMode('direct')}
               className={`px-4 py-2 rounded ${authMode === 'direct' ? 'bg-indigo-500 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'}`}
             >
               Ввести JWT
-            </button>
+            </button> */}
           </div>
 
           {authMode === 'credentials' ? (
@@ -316,9 +318,9 @@ export const App = () => {
               <button type='submit' className='w-full bg-indigo-500 text-white p-2 rounded hover:bg-indigo-600'>
                 {isLogin ? 'Логин' : 'Регистрация'}
               </button>
-              <button type='button' onClick={() => setIsLogin(!isLogin)} className='w-full mt-4 text-indigo-300 hover:text-indigo-100'>
+              {/* <button type='button' onClick={() => setIsLogin(!isLogin)} className='w-full mt-4 text-indigo-300 hover:text-indigo-100'>
                 {isLogin ? 'Зарегистрироваться?' : 'Залогиниться?'}
-              </button>
+              </button> */}
             </form>
           ) : (
             <form onSubmit={handleDirectAuth}>
@@ -386,7 +388,7 @@ export const App = () => {
       <form onSubmit={handleSendMessage} className='flex-none bg-gray-700 p-4'>
         <div className='flex flex-col space-y-2'>
           <div className='flex items-center justify-end space-x-2 px-2'>
-            <button
+            {/* <button
               type='button'
               onClick={() => setMessageMode('regular')}
               className={`flex items-center space-x-1 px-3 py-1 rounded ${
@@ -405,7 +407,7 @@ export const App = () => {
             >
               <Users size={16} />
               <span>Всем</span>
-            </button>
+            </button> */}
             <button
               type='button'
               onClick={() => setMessageMode('direct')}

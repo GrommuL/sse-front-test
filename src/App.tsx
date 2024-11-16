@@ -26,6 +26,63 @@ export const App = () => {
   const [users, setUsers] = useState<{ hashedPhone: string; phone: string }[]>([])
   const eventSourceRef = useRef<EventSource | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
+  const [type, setType] = useState<'manager' | 'user'>('user')
+  //@ts-ignore
+  const [allMessages, setAllMessages] = useState<
+    {
+      id: number
+      payload: string
+      date: Date
+      isSender: boolean
+    }[]
+  >([])
+
+  const [clients, setClient] = useState([
+    {
+      id: 1,
+      name: 'Client 1',
+      orders: [
+        {
+          id: 1,
+          name: 'Order 1 1'
+        },
+        {
+          id: 2,
+          name: 'Order 1 2'
+        }
+      ]
+    },
+    {
+      id: 2,
+      name: 'Client 2',
+      orders: [
+        {
+          id: 1,
+          name: 'Order 2 1'
+        },
+        {
+          id: 2,
+          name: 'Order 2 2'
+        }
+      ]
+    },
+    {
+      id: 3,
+      name: 'Client 3',
+      orders: [
+        {
+          id: 1,
+          name: 'Order 3 1'
+        },
+        {
+          id: 2,
+          name: 'Order 3 2'
+        }
+      ]
+    }
+  ])
+  const [orders, setOrders] = useState<{ id: number; name: string }[]>([])
+  const [orderId, setOrderId] = useState<number | null>(null)
 
   const retryCount = useRef(0)
   const retryDelay = useRef(INITIAL_RETRY_DELAY)
@@ -98,7 +155,7 @@ export const App = () => {
           startSseConnection()
           setErrorMessage('')
         }, retryDelay.current)
-      } else if (message.status === 'message') {
+      } else if (message.status === 'message' || message.status === 'application') {
         setMessages((prevMessages) => [...prevMessages, message])
         console.log('Новое сообщение.', event.data)
       } else {
@@ -132,7 +189,7 @@ export const App = () => {
     try {
       const response = await axios.post(
         `${API_URL}/auth/${endpoint}`,
-        { phone: username, password, fingerprint: username },
+        { phone: username, password },
         { headers: { 'Content-Type': 'application/json' }, withCredentials: true }
       )
 
@@ -191,17 +248,15 @@ export const App = () => {
             alert('Пожалуйста, укажите имя получателя')
             return
           }
-          const response = await fetch(`${API_URL}/sse/message/auth`, {
+          const response = await fetch(`${API_URL}/sse/application/${targetUsername}`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`
             },
+
             body: JSON.stringify({
-              payload: newMessage,
-              senderHash: recepientUsername,
-              recipientHash: targetUsername,
-              sentTime: new Date()
+              payload: newMessage
             }),
             credentials: 'include'
           })
@@ -257,6 +312,18 @@ export const App = () => {
     setRecepientUsername(currentUser.hashedPhone)
 
     setUsers(response.data)
+  }
+
+  const getAllMessages = async () => {
+    const response = await axios(`${API_URL}/messages/application/1`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      }
+    })
+
+    setAllMessages(response.data)
   }
 
   const disconnect = async () => {
@@ -357,6 +424,12 @@ export const App = () => {
         <div className='flex items-center gap-2'>
           {isConnecting && <span className='text-yellow-500 text-sm'>Соединение...</span>}
           {!isConnecting && <span className='text-green-500 text-sm'>Подключено</span>}
+          <button
+            onClick={() => setType((prev) => (prev === 'user' ? 'manager' : 'user'))}
+            className='bg-green-700 w-[200px] text-white px-4 py-2 rounded hover:bg-red-600'
+          >
+            {type === 'user' ? 'Клиент' : 'Менеджер'}
+          </button>
           <button onClick={disconnect} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
             Отключиться
           </button>
@@ -368,27 +441,44 @@ export const App = () => {
           </button>
         </div>
       </div>
-      <div className='flex-grow overflow-y-auto p-4 space-y-4'>
-        <div className='flex flex-col gap-y-[20px]'>
-          <code>
-            <pre className='text-white text-[14px]'>{JSON.stringify(users, undefined, 2)}</pre>
-          </code>
-          <button onClick={getUsers} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
-            Получить всех пользователей
-          </button>
-        </div>
-        {messages.map((message, index) => (
-          <div key={`${index}-${message.payload}`} className='bg-gray-700 rounded-lg p-3'>
-            {/* <span className='font-bold text-indigo-300'>{message.author}: </span> */}
-            <span className='text-white'>{message.payload}</span>
+      {type === 'user' && (
+        <>
+          <div className='flex-grow overflow-y-auto p-4 space-y-4'>
+            <div className='flex flex-col gap-y-[20px]'>
+              <code>
+                <pre className='text-white text-[14px]'>{JSON.stringify(users, undefined, 2)}</pre>
+              </code>
+
+              <button onClick={getUsers} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
+                Получить всех пользователей
+              </button>
+              {/* <code>
+                <pre className='text-white text-[14px]'>{JSON.stringify(allMessages, undefined, 2)}</pre>
+              </code> */}
+              <button onClick={getAllMessages} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
+                Получить все сообщения
+              </button>
+            </div>
+            <div className='flex flex-col w-full gap-y-[20px]'>
+              {allMessages.map((message, index) => (
+                <div key={`${index}-${message.payload}`} className={`bg-gray-700 rounded-lg p-3 w-[50%] ${message.isSender && 'self-end'}`}>
+                  {/* <span className='font-bold text-indigo-300'>{message.author}: </span> */}
+                  <span className='text-white'>{message.payload}</span>
+                </div>
+              ))}
+            </div>
+            {messages.map((message, index) => (
+              <div key={`${index}-${message.payload}`} className='bg-gray-700 rounded-lg p-3'>
+                {/* <span className='font-bold text-indigo-300'>{message.author}: </span> */}
+                <span className='text-white'>{message.payload}</span>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
           </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-      <form onSubmit={handleSendMessage} className='flex-none bg-gray-700 p-4'>
-        <div className='flex flex-col space-y-2'>
-          <div className='flex items-center justify-end space-x-2 px-2'>
-            {/* <button
+          <form onSubmit={handleSendMessage} className='flex-none bg-gray-700 p-4'>
+            <div className='flex flex-col space-y-2'>
+              <div className='flex items-center justify-end space-x-2 px-2'>
+                {/* <button
               type='button'
               onClick={() => setMessageMode('regular')}
               className={`flex items-center space-x-1 px-3 py-1 rounded ${
@@ -408,57 +498,179 @@ export const App = () => {
               <Users size={16} />
               <span>Всем</span>
             </button> */}
-            <button
-              type='button'
-              onClick={() => setMessageMode('direct')}
-              className={`flex items-center space-x-1 px-3 py-1 rounded ${
-                messageMode === 'direct' ? 'bg-indigo-500 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-              }`}
-            >
-              <UserPlus size={16} />
-              <span>Личное</span>
-            </button>
-          </div>
-          <div className='flex space-x-2'>
-            <div className='flex rounded-md overflow-hidden flex-grow'>
-              <input
-                type='text'
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder={
-                  messageMode === 'broadcast'
-                    ? 'Написать сообщение всем...'
-                    : messageMode === 'direct'
-                    ? 'Написать личное сообщение...'
-                    : 'Написать сообщение...'
-                }
-                className='flex-grow p-2 bg-gray-600 text-white focus:outline-none'
-              />
-              {messageMode === 'direct' && (
-                <input
-                  type='text'
-                  value={targetUsername}
-                  onChange={(e) => setTargetUsername(e.target.value)}
-                  placeholder='Имя получателя'
-                  className='w-40 p-2 bg-gray-600 text-white focus:outline-none border-l border-gray-700'
-                />
-              )}
-              <button
-                type='submit'
-                className={`px-4 py-2 text-white ${
-                  messageMode === 'broadcast'
-                    ? 'bg-purple-500 hover:bg-purple-600'
-                    : messageMode === 'direct'
-                    ? 'bg-green-500 hover:bg-green-600'
-                    : 'bg-indigo-500 hover:bg-indigo-600'
-                }`}
-              >
-                Отправить
-              </button>
+                <button
+                  type='button'
+                  onClick={() => setMessageMode('broadcast')}
+                  className={`flex items-center space-x-1 px-3 py-1 rounded ${
+                    messageMode === 'broadcast' ? 'bg-indigo-500 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                  }`}
+                >
+                  <Users size={16} />
+                  <span>Все сообщения</span>
+                </button>
+                <button
+                  type='button'
+                  onClick={() => setMessageMode('direct')}
+                  className={`flex items-center space-x-1 px-3 py-1 rounded ${
+                    messageMode === 'direct' ? 'bg-indigo-500 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                  }`}
+                >
+                  <span>Заявка</span>
+                </button>
+              </div>
+              <div className='flex space-x-2'>
+                <div className='flex rounded-md overflow-hidden flex-grow'>
+                  <input
+                    type='text'
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder={
+                      messageMode === 'broadcast'
+                        ? 'Написать сообщение всем...'
+                        : messageMode === 'direct'
+                        ? 'Написать сообщение по заявке...'
+                        : 'Написать сообщение...'
+                    }
+                    className='flex-grow p-2 bg-gray-600 text-white focus:outline-none'
+                  />
+                  {messageMode === 'direct' && (
+                    <input
+                      type='text'
+                      value={targetUsername}
+                      onChange={(e) => setTargetUsername(e.target.value)}
+                      placeholder='Номер заявки'
+                      className='w-40 p-2 bg-gray-600 text-white focus:outline-none border-l border-gray-700'
+                    />
+                  )}
+                  <button
+                    type='submit'
+                    className={`px-4 py-2 text-white ${
+                      messageMode === 'broadcast'
+                        ? 'bg-purple-500 hover:bg-purple-600'
+                        : messageMode === 'direct'
+                        ? 'bg-green-500 hover:bg-green-600'
+                        : 'bg-indigo-500 hover:bg-indigo-600'
+                    }`}
+                  >
+                    Отправить
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        </>
+      )}
+      {type === 'manager' && (
+        <>
+          <div className='flex-grow overflow-y-auto py-[10px] pl-[20px] flex gap-x-[40px]'>
+            <div className='w-[200px]  h-full border border-blue-600 bg-gray-600 flex flex-col gap-y-[20px]'>
+              {clients.map((client) => (
+                <button
+                  className='w-full bg-white text-black'
+                  key={client.id}
+                  onClick={() => {
+                    setOrders([])
+                    setOrderId(null)
+                    setOrders(client.orders)
+                  }}
+                >
+                  {client.name}
+                </button>
+              ))}
+            </div>
+            <div className='w-[200px]  h-full border border-blue-600 bg-gray-600 flex flex-col gap-y-[20px]'>
+              {orders.map((order) => (
+                <button className='w-full bg-white text-black' key={order.id} onClick={() => setOrderId(order.id)}>
+                  {order.name}
+                </button>
+              ))}
+            </div>
+            <div className='flex-grow overflow-y-auto'>
+              <div className='flex flex-col gap-y-[20px]'>
+                <code>
+                  <pre className='text-white text-[14px]'>{JSON.stringify(users, undefined, 2)}</pre>
+                </code>
+                <button onClick={getUsers} className='bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600'>
+                  Получить всех пользователей
+                </button>
+              </div>
+              <code>
+                <pre className='pt-[40px] text-green-500 text-[14px]'>{JSON.stringify(orderId, undefined, 2)}</pre>
+              </code>
+              {messages.map((message, index) => (
+                <div key={`${index}-${message.payload}`} className='bg-gray-700 rounded-lg p-3'>
+                  {/* <span className='font-bold text-indigo-300'>{message.author}: </span> */}
+                  <span className='text-white'>{message.payload}</span>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
             </div>
           </div>
-        </div>
-      </form>
+          <form onSubmit={handleSendMessage} className='flex-none bg-gray-700 p-4'>
+            <div className='flex flex-col space-y-2'>
+              <div className='flex items-center justify-end space-x-2 px-2'>
+                <button
+                  type='button'
+                  onClick={() => setMessageMode('broadcast')}
+                  className={`flex items-center space-x-1 px-3 py-1 rounded ${
+                    messageMode === 'broadcast' ? 'bg-indigo-500 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                  }`}
+                >
+                  <Users size={16} />
+                  <span>Все сообщения</span>
+                </button>
+                <button
+                  type='button'
+                  onClick={() => setMessageMode('direct')}
+                  className={`flex items-center space-x-1 px-3 py-1 rounded ${
+                    messageMode === 'direct' ? 'bg-indigo-500 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                  }`}
+                >
+                  <span>Заявка</span>
+                </button>
+              </div>
+              <div className='flex space-x-2'>
+                <div className='flex rounded-md overflow-hidden flex-grow'>
+                  <input
+                    type='text'
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder={
+                      messageMode === 'broadcast'
+                        ? 'Написать сообщение всем...'
+                        : messageMode === 'direct'
+                        ? 'Написать сообщение по заявке...'
+                        : 'Написать сообщение...'
+                    }
+                    className='flex-grow p-2 bg-gray-600 text-white focus:outline-none'
+                  />
+                  {messageMode === 'direct' && (
+                    <input
+                      type='text'
+                      value={targetUsername}
+                      onChange={(e) => setTargetUsername(e.target.value)}
+                      placeholder='Номер заявки'
+                      className='w-40 p-2 bg-gray-600 text-white focus:outline-none border-l border-gray-700'
+                    />
+                  )}
+                  <button
+                    type='submit'
+                    className={`px-4 py-2 text-white ${
+                      messageMode === 'broadcast'
+                        ? 'bg-purple-500 hover:bg-purple-600'
+                        : messageMode === 'direct'
+                        ? 'bg-green-500 hover:bg-green-600'
+                        : 'bg-indigo-500 hover:bg-indigo-600'
+                    }`}
+                  >
+                    Отправить
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        </>
+      )}
     </div>
   )
 }
